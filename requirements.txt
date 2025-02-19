@@ -130,8 +130,8 @@ threadpoolctl==3.5.0
 tokenizers==0.20.1
 toolz==1.0.0
 torch==1.13.1
-torch-scatter @ file:///data0/home/songyixin/torch_scatter-2.1.1%2Bpt113cu117-cp39-cp39-linux_x86_64.whl#sha256=7237ae92431813603954f8a1966fc4fd54055ee5082eff21b1d270011b54de32
-torch-sparse @ file:///data0/home/songyixin/torch_sparse-0.6.17%2Bpt113cu117-cp39-cp39-linux_x86_64.whl#sha256=df47c2605eede3135fa74a5de52697e1992e172fc8ed9472dfd8ea02ba6a8d70
+torch-scatter @ file:///data0/home/xxx/torch_scatter-2.1.1%2Bpt113cu117-cp39-cp39-linux_x86_64.whl#sha256=7237ae92431813603954f8a1966fc4fd54055ee5082eff21b1d270011b54de32
+torch-sparse @ file:///data0/home/xxx/torch_sparse-0.6.17%2Bpt113cu117-cp39-cp39-linux_x86_64.whl#sha256=df47c2605eede3135fa74a5de52697e1992e172fc8ed9472dfd8ea02ba6a8d70
 torch_pca==1.0.0
 tornado==6.4.1
 tqdm==4.66.5
