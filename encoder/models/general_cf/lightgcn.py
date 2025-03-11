@@ -22,7 +22,6 @@ class LightGCN(BaseModel):
 
         # hyper-parameter
         self.layer_num = self.hyper_config['layer_num']
-        self.reg_weight = self.hyper_config['reg_weight']
 
         self.usrprf_repre = t.tensor(configs['usrprf_repre']).float().cuda()
         self.itmprf_repre = t.tensor(configs['itmprf_repre']).float().cuda()
@@ -54,9 +53,8 @@ class LightGCN(BaseModel):
         pos_embeds = item_embeds[poss]
         neg_embeds = item_embeds[negs]
         bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0]
-        reg_loss = reg_params(self)
-        loss = bpr_loss + self.reg_weight * reg_loss
-        losses = {'bpr_loss': bpr_loss, 'reg_loss': reg_loss}
+        loss = bpr_loss 
+        losses = {'bpr_loss': bpr_loss} # reg loss in optimizer
         return loss, losses
 
     def full_predict(self, batch_data):

@@ -38,14 +38,12 @@ class Trainer(object):
             if "mode" in optim_config and optim_config['mode'] == "finetune":
                 self.optimizer = optim.Adam(# model.parameters(), lr=optim_config['lr'], weight_decay=optim_config['weight_decay'])
                 [
-                    {"params": model.vqre.parameters(), "lr": optim_config['lr']},
-                    {"params": model.user_embeds, "lr": optim_config['lr'] / 10, "weight_decay": optim_config['weight_decay']},
-                    {"params": model.item_embeds, "lr": optim_config['lr'] / 10, "weight_decay": optim_config['weight_decay']}
+                    {"params": model.vqraf.parameters(), "lr": optim_config['lr']},
+                    {"params": list(set(model.parameters()) - set(model.vqraf.parameters())),
+                     "lr": optim_config['lr'] / 10, "weight_decay": 2 * model.hyper_config['reg_weight']},
                 ])
-            elif "mode" in optim_config and optim_config['mode'] == "fix":
-                self.optimizer = optim.Adam(model.vqre.parameters(), lr=optim_config['lr'])
             else:
-                self.optimizer = optim.Adam(model.parameters(), lr=optim_config['lr'], weight_decay=optim_config['weight_decay'])
+                self.optimizer = optim.Adam(model.parameters(), lr=optim_config['lr'], weight_decay= 2 * model.hyper_config['reg_weight'])
                 
 
     def train_epoch(self, model, epoch_idx):
@@ -56,7 +54,6 @@ class Trainer(object):
         # for recording loss
         loss_log_dict = {}
         ep_loss = 0
-        # steps = len(train_dataloader.dataset) // configs['train']['batch_size']
         # start this epoch
         model.train()
         for i, tem in tqdm(enumerate(train_dataloader), desc=f'[Epoch {epoch_idx}]', total=len(train_dataloader)):
@@ -79,14 +76,14 @@ class Trainer(object):
                 else:
                     loss_log_dict[loss_name] += _loss_val
 
-            if i == 0 and configs['model']['name'][-2:] == 'vq':
-                model.eval()
-                print("\033[43mStart to explain\033[0m")
-                with torch.no_grad():
-                    model.get_explanation(batch_data)
-                model.train()
-                print("\033[43mFinish explaining\033[0m")
-                print()
+            # if i == 0 and configs['model']['name'][-2:] == 'vq':
+            #     model.eval()
+            #     print("\033[43mStart to explain\033[0m")
+            #     with torch.no_grad():
+            #         model.get_explanation(batch_data)
+            #     model.train()
+            #     print("\033[43mFinish explaining\033[0m")
+            #     print()
 
         wandb.log({f'Epoch/{key}': value for key, value in loss_log_dict.items()})
 
@@ -134,11 +131,6 @@ class Trainer(object):
         model.eval()
         eval_result = self.metric.eval(model, self.data_handler.valid_dataloader)
         self.logger.log_eval(eval_result, configs['test']['k'], data_type='Valid')
-
-        if configs['model']['name'][-2:] == 'vq':
-            recons_eval_result = self.metric.eval_2(model, self.data_handler.valid_dataloader)
-            self.logger.log_eval(recons_eval_result, configs['test']['k'], data_type='Valid_Recons')
-
         return eval_result
 
 
@@ -146,11 +138,6 @@ class Trainer(object):
         model.eval()
         eval_result = self.metric.eval(model, self.data_handler.test_dataloader)
         self.logger.log_eval(eval_result, configs['test']['k'], data_type='Valid')
-
-        if configs['model']['name'][-2:] == 'vq':
-            recons_eval_result = self.metric.eval_2(model, self.data_handler.test_dataloader)
-            self.logger.log_eval(recons_eval_result, configs['test']['k'], data_type='Valid_Recons')
-
         return eval_result
     
     def save_model(self, model):

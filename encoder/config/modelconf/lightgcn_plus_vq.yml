@@ -3,7 +3,7 @@ optimizer:
   lr: 1.0e-3
   weight_decay: 0
   load_model: lightgcn_plus
-  mode: finetune # fix, all, finetune
+  mode: finetune
 
 train:
   epoch: 3000
@@ -26,29 +26,49 @@ data:
 
 model:
   name: lightgcn_plus_vq
-  # general parameters here
   keep_rate: 0.8
   embedding_size: 256
-  # dataset-specific parameters here
+
   layer_num: 3
   reg_weight: 1.0e-6
   kd_weight: 1.0e-2
   kd_temperature: 0.2
+  word_num: 8
+  word_dim: 256
+  vq_weight: 1.0
+  recons_weight: 1.0
+  align_weight: 1.0e-1
+
   # for amazon
   amazon:
-    layer_num: 3
-    reg_weight: 1.0e-6
-    kd_weight: 1.0e-2
-    kd_temperature: 0.2
+  layer_num: 3
+  reg_weight: 1.0e-6
+  kd_weight: 1.0e-2
+  kd_temperature: 0.2
+  word_num: 8
+  word_dim: 256
+  vq_weight: 1.0
+  recons_weight: 1.0
+  align_weight: 1.0e-1
   # for yelp
   yelp:
-    layer_num: 3
-    reg_weight: 1.0e-6
-    kd_weight: 1.0e-2
-    kd_temperature: 0.2
-  # for steam:
+  layer_num: 3
+  reg_weight: 1.0e-6
+  kd_weight: 1.0e-2
+  kd_temperature: 0.2
+  word_num: 8
+  word_dim: 256
+  vq_weight: 1.0
+  recons_weight: 1.0
+  align_weight: 1.0e-1
+  # for steam
   steam:
-    layer_num: 3
-    reg_weight: 1.0e-6
-    kd_weight: 1.0e-3
-    kd_temperature: 0.1
+  layer_num: 2
+  reg_weight: 1.0e-6
+  kd_weight: 1.0e-2
+  kd_temperature: 0.2
+  word_num: 8
+  word_dim: 256
+  vq_weight: 1.0
+  recons_weight: 1.0
+  align_weight: 1.0e-1

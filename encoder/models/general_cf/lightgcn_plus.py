@@ -22,7 +22,6 @@ class LightGCN_plus(BaseModel):
 
         # hyper-parameter
         self.layer_num = self.hyper_config['layer_num']
-        self.reg_weight = self.hyper_config['reg_weight']
         self.kd_weight = self.hyper_config['kd_weight']
         self.kd_temperature = self.hyper_config['kd_temperature']
 
@@ -79,16 +78,14 @@ class LightGCN_plus(BaseModel):
         ancprf_embeds, posprf_embeds, negprf_embeds = self._pick_embeds(usrprf_embeds, itmprf_embeds, batch_data)
 
         bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0]
-        reg_loss = self.reg_weight * reg_params(self)
 
         kd_loss = cal_infonce_loss(anc_embeds, ancprf_embeds, usrprf_embeds, self.kd_temperature) + \
                   cal_infonce_loss(pos_embeds, posprf_embeds, posprf_embeds, self.kd_temperature) + \
                   cal_infonce_loss(neg_embeds, negprf_embeds, negprf_embeds, self.kd_temperature)
         kd_loss /= anc_embeds.shape[0]
-        kd_loss *= self.kd_weight
 
-        loss = bpr_loss + reg_loss + kd_loss
-        losses = {'bpr_loss': bpr_loss, 'reg_loss': reg_loss, 'kd_loss': kd_loss}
+        loss = bpr_loss + self.kd_weight * kd_loss
+        losses = {'bpr_loss': bpr_loss, 'kd_loss': kd_loss}
         return loss, losses
 
     def full_predict(self, batch_data):

@@ -24,13 +24,10 @@ data:
 
 model:
   name: simgcl
-  # general parameters here
   keep_rate: 1.0
   embedding_size: 256
-
-  # dataset-specific hyper-parameter here
+  
   layer_num: 3
-  reg_weight: 1.0e-5
   cl_weight: 1.0e-1
   temperature: 0.2
   eps: 0.9

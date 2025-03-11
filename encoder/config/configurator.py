@@ -8,11 +8,11 @@ import torch.nn as nn
 
 def parse_configure(model=None, dataset=None):
     parser = argparse.ArgumentParser(description='RLMRec')
-    parser.add_argument('--model', type=str, default='LightGCN', help='Model name')
+    parser.add_argument('--model', type=str, default='ligntgcn', help='Model name')
     parser.add_argument('--dataset', type=str, default='amazon', help='Dataset name')
     parser.add_argument('--device', type=str, default='cuda', help='cpu or cuda')
-    parser.add_argument('--seed', type=int, default=None, help='Device number')
-    parser.add_argument('--cuda', type=str, default='0', help='Device number')
+    parser.add_argument('--seed', type=int, default=None, help='Random Seed')
+    parser.add_argument('--cuda', type=str, default='1', help='Device number')
     args, _ = parser.parse_known_args()
 
     # cuda
@@ -49,7 +49,7 @@ def parse_configure(model=None, dataset=None):
         if args.seed is not None:
             configs['train']['seed'] = args.seed
 
-        # semantic embeddings
+        # semantic embeddings for RLMRec
         usrprf_embeds_path = "./data/{}/usr_emb_np.pkl".format(configs['data']['name'])
         itmprf_embeds_path = "./data/{}/itm_emb_np.pkl".format(configs['data']['name'])
         with open(usrprf_embeds_path, 'rb') as f:
@@ -57,7 +57,7 @@ def parse_configure(model=None, dataset=None):
         with open(itmprf_embeds_path, 'rb') as f:
             configs['itmprf_embeds'] = pickle.load(f)
 
-        # semantic representations
+        # semantic representations for VQRAF
         usrprf_repre_path = "./data/{}/usr_repre_np.pkl".format(configs['data']['name'])
         itmprf_repre_path = "./data/{}/itm_repre_np.pkl".format(configs['data']['name'])
         with open(usrprf_repre_path, 'rb') as f:

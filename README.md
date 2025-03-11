@@ -4,7 +4,7 @@
 
 `encoder/models/general_cf/` all models, including base models (end without vq) and VQ-RAF enhanced models (end with vq)
 
-`vqre.py` the implementation of "Vector-quantized Disentangled Representation Mapping"
+`encoder/vqraf.py` the implementation of "Vector-quantized Disentangled Representation Mapping"
 
 
 

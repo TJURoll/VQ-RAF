@@ -8,7 +8,7 @@ import wandb
 
 if __name__ == '__main__':
 
-    wandb.init(project = f"All256_{configs['data']['name']}", config = configs, name = configs['model']['name'])
+    wandb.init(project = f"VQRAF_{configs['data']['name']}", config = configs, name = configs['model']['name'])
     # First Step: Create data_handler
     init_seed()
     data_handler = build_data_handler()

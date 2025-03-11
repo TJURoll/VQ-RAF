@@ -1,5 +1,5 @@
 import pickle
-from vqre import VQRE
+from vqraf import VQRAF
 import torch as t
 from torch import nn
 from torch.nn import functional as F
@@ -27,7 +27,6 @@ class LightGCN_plus_vq(BaseModel):
 
         # hyper-parameter
         self.layer_num = self.hyper_config['layer_num']
-        self.reg_weight = self.hyper_config['reg_weight']
         self.kd_weight = self.hyper_config['kd_weight']
         self.kd_temperature = self.hyper_config['kd_temperature']
 
@@ -42,14 +41,13 @@ class LightGCN_plus_vq(BaseModel):
 
         self._init_weight()
 
-
         # vq
-        self.word_num = 8
-        self.word_dim = 256
-        self.vq_weight = 1.0
-        self.recons_weight = 1.0
-        self.align_weight = 1e-1
-        self.vqre = VQRE(input_dim=self.embedding_size, word_num=self.word_num, word_dim = self.word_dim)
+        self.word_num = self.hyper_config['word_num']
+        self.word_dim = self.hyper_config['word_dim']
+        self.vq_weight = self.hyper_config['vq_weight']
+        self.recons_weight = self.hyper_config['recons_weight']
+        self.align_weight = self.hyper_config['align_weight']
+        self.vqraf = VQRAF(input_dim=self.embedding_size, word_num=self.word_num, word_dim = self.word_dim)
 
         if "load_model" in configs['optimizer']:
             model_name = configs['optimizer']["load_model"]
@@ -108,7 +106,7 @@ class LightGCN_plus_vq(BaseModel):
 
         # do vq
         entity_embeds = t.cat([anc_embeds, pos_embeds, neg_embeds], dim=0)
-        entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.vqre(entity_embeds)
+        entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.vqraf(entity_embeds)
 
         # get the semantic representations
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, batch_data)
@@ -119,7 +117,6 @@ class LightGCN_plus_vq(BaseModel):
         ancprf_embeds, posprf_embeds, negprf_embeds = self._pick_embeds(usrprf_embeds, itmprf_embeds, batch_data)
 
         bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0]
-        reg_loss = reg_params(self)
 
         kd_loss = cal_infonce_loss(anc_embeds, ancprf_embeds, usrprf_embeds, self.kd_temperature) + \
                   cal_infonce_loss(pos_embeds, posprf_embeds, posprf_embeds, self.kd_temperature) + \
@@ -127,8 +124,8 @@ class LightGCN_plus_vq(BaseModel):
         kd_loss /= anc_embeds.shape[0]
         align_loss = cal_align_loss(colla_repre, semantic_repre) 
 
-        loss = bpr_loss + self.reg_weight * reg_loss + self.kd_weight * kd_loss + self.vq_weight * vq_loss + self.recons_weight * recons_loss + self.align_weight * align_loss
-        losses = {'bpr_loss': bpr_loss, 'reg_loss': reg_loss, 'kd0_loss': kd_loss, 'kd_loss': align_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss}
+        loss = bpr_loss + self.kd_weight * kd_loss + self.vq_weight * vq_loss + self.recons_weight * recons_loss + self.align_weight * align_loss
+        losses = {'bpr_loss': bpr_loss, 'kd_loss': kd_loss, 'align_loss': align_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss}
         return loss, losses
 
     def get_explanation(self, batch_data):
@@ -144,7 +141,7 @@ class LightGCN_plus_vq(BaseModel):
         entity_embeds = t.cat([anc_embeds, pos_embeds, neg_embeds], dim=1)
         entity_embeds = entity_embeds.reshape(-1, self.embedding_size)
 
-        explain_words, colla_repre = self.vqre.forward_explain(entity_embeds)
+        explain_words, colla_repre = self.vqraf.forward_explain(entity_embeds)
 
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, selected_data)
         semantic_repre = t.cat([ancprf_repre, posprf_repre, negprf_repre], dim=1)
@@ -177,19 +174,4 @@ class LightGCN_plus_vq(BaseModel):
         full_preds = self._mask_predict(full_preds, train_mask)
         return full_preds
     
-    def full_predict_2(self, batch_data):
-        user_embeds, item_embeds = self.forward(self.adj, 1.0)
-        self.is_training = False
-        pck_users, train_mask = batch_data
-        pck_users = pck_users.long()
-        pck_user_embeds = user_embeds[pck_users]
-
-        entity_embeds = t.cat([pck_user_embeds, item_embeds], dim=0)
-        entity_embeds_vq = self.vqre.forward_reconstruction(entity_embeds)
-        pck_user_embeds_vq, item_embeds_vq = t.split(entity_embeds_vq,[pck_user_embeds.shape[0], item_embeds.shape[0]])
-        full_preds = pck_user_embeds_vq @ item_embeds_vq.T
-        
-        # full_preds = pck_user_embeds @ item_embeds.T
-        full_preds = self._mask_predict(full_preds, train_mask)
-        return full_preds
     

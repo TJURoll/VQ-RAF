@@ -42,5 +42,5 @@ model:
     reg_weight: 1.0e-6
   # for steam
   steam:
-    layer_num: 3
+    layer_num: 2
     reg_weight: 1.0e-6

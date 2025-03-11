@@ -2,12 +2,12 @@ optimizer:
   name: adam
   lr: 1.0e-3
   weight_decay: 0
-  load_model: simgcl
+  load_model: dccf
   mode: finetune
 
 train:
   epoch: 3000
-  batch_size: 128
+  batch_size: 4096
   save_model: true
   loss: pairwise
   test_step: 1
@@ -25,15 +25,15 @@ data:
   name: amazon
 
 model:
-  name: simgcl_vq
-  keep_rate: 1.0
-  embedding_size: 256
+  name: dccf_vq
+  embedding_size: 128
+  intent_num: 64
 
-  layer_num: 3
-  reg_weight: 1.0e-5
-  cl_weight: 1.0e-1
-  temperature: 0.2
-  eps: 0.9
+  # data-specific parameters here
+  layer_num: 2
+  reg_weight: 1.0e-4
+  cl_weight: 1.0e-3
+  temperature: 0.1
   word_num: 8
   word_dim: 256
   vq_weight: 1.0
@@ -41,11 +41,10 @@ model:
   align_weight: 1.0e-1
   # for amazon
   amazon:
-    layer_num: 3
-    reg_weight: 1.0e-5
-    cl_weight: 1.0e-1
-    temperature: 0.2
-    eps: 0.9
+    layer_num: 2
+    reg_weight: 1.0e-4
+    cl_weight: 1.0e-3
+    temperature: 0.1
     word_num: 8
     word_dim: 256
     vq_weight: 1.0
@@ -53,11 +52,10 @@ model:
     align_weight: 1.0e-1
   # for yelp
   yelp:
-    layer_num: 3
-    reg_weight: 1.0e-5
-    cl_weight: 1.0e-1
-    temperature: 0.2
-    eps: 0.9
+    layer_num: 2
+    reg_weight: 1.0e-4
+    cl_weight: 1.0e-3
+    temperature: 0.1
     word_num: 8
     word_dim: 256
     vq_weight: 1.0
@@ -66,10 +64,9 @@ model:
   # for steam
   steam:
     layer_num: 3
-    reg_weight: 1.0e-5
-    cl_weight: 1.0e-1
-    temperature: 0.5
-    eps: 0.2
+    reg_weight: 1.0e-3
+    cl_weight: 1.0e-3
+    temperature: 0.1
     word_num: 8
     word_dim: 256
     vq_weight: 1.0

@@ -24,10 +24,9 @@ data:
 
 model:
   name: lightgcn_plus
-  # general parameters here
   keep_rate: 0.8
   embedding_size: 256
-  # dataset-specific parameters here
+
   layer_num: 3
   reg_weight: 1.0e-6
   kd_weight: 1.0e-2
@@ -44,9 +43,9 @@ model:
     reg_weight: 1.0e-6
     kd_weight: 1.0e-2
     kd_temperature: 0.2
-  # for steam:
+  # for steam
   steam:
-    layer_num: 3
+    layer_num: 2
     reg_weight: 1.0e-6
-    kd_weight: 1.0e-3
-    kd_temperature: 0.1
+    kd_weight: 1.0e-2
+    kd_temperature: 0.2

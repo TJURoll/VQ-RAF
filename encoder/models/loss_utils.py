@@ -1,30 +1,19 @@
 import torch as t
 import torch.nn.functional as F
-
 import wandb
 
 def cal_align_loss(A, B, temperature=0.02):
-    
     sim_matrix = F.cosine_similarity(A.unsqueeze(1), B.unsqueeze(0), dim=-1) # -1~1
-
-    wandb.log({"diag_avg": t.diag(sim_matrix).mean(), 
-               "non_diag_avg": (sim_matrix.sum() - t.diag(sim_matrix).sum()) / (sim_matrix.shape[0] * sim_matrix.shape[1] - sim_matrix.shape[0])})
-
+    # wandb.log({"diag_avg": t.diag(sim_matrix).mean(), 
+    #            "non_diag_avg": (sim_matrix.sum() - t.diag(sim_matrix).sum()) / (sim_matrix.shape[0] * sim_matrix.shape[1] - sim_matrix.shape[0])})
     sim_matrix_scaled = t.exp(sim_matrix / temperature)
-
     loss = - t.mean(t.log(t.diag(sim_matrix_scaled) / t.sum(sim_matrix_scaled, dim=1)))
-
     return loss
 
 
 def cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds):
     pos_preds = (anc_embeds * pos_embeds).sum(-1)
     neg_preds = (anc_embeds * neg_embeds).sum(-1)
-    return t.sum(F.softplus(neg_preds - pos_preds))
-
-def cal_bpr_loss_2(anc_embeds, pos_embeds, neg_embeds):
-    pos_preds = F.cosine_similarity(anc_embeds, pos_embeds, dim=-1)
-    neg_preds = F.cosine_similarity(anc_embeds, neg_embeds, dim=-1)
     return t.sum(F.softplus(neg_preds - pos_preds))
 
 def reg_pick_embeds(embeds_list):

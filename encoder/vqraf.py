@@ -10,60 +10,47 @@ from collections import Counter
 import pandas as pd
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModel
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-# from sklearn.decomposition import PCA
-from torch_pca import PCA
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
 
-def is_english_word(word):
-    return bool(re.fullmatch(r"[a-zA-Z]+", word))
-
-class CodeBook(nn.Module):
-    def __init__(self, codebook_dim = 512, word_num = 10, pca_dim = 64,
-                 llm_name="../LLMs/llama2-embedding"):
+class Quantizer(nn.Module):
+    def __init__(self, codebook_dim = 512, word_num = 10, dataset_name = 'amazon', llm_path="./LLMs/llama2-embedding"):
         super().__init__()
         self.word_num = word_num
-        tokenizer = AutoTokenizer.from_pretrained(llm_name)
-        model = AutoModel.from_pretrained(llm_name, trust_remote_code = True)
+        self.dataset_name = dataset_name
 
-        for param in model.parameters():
+        self.tokenizer = AutoTokenizer.from_pretrained(llm_path)
+        self.model = AutoModel.from_pretrained(llm_path, trust_remote_code = True)
+
+        # freeze LLM parameters
+        for param in self.model.parameters():
             param.requires_grad = False
 
-        self.tokenizer = tokenizer
-        self.model = model
-        self.llm_batch_size = 1024
+        # filter vocabulary
+        tokens_df = self.filter_and_get_vocabulary() # two columns: token_id, token
+        # tokens_df.to_csv('./data/vocabulary/vocabulary.csv', index=False)  # save the filtered vocabulary
 
-        tokens_df = self._get_vocabulary(tokenizer) # two columns: token_id, token
-        tokens_df.to_csv('./data/vocabulary/vocabulary.csv', index=False)
-
-        self.token_id: torch.tensor = torch.tensor(tokens_df['token_id'].values)
+        # get token embedding & construct linear mapping
+        self.token_id = torch.tensor(tokens_df['token_id'].values)
         self.vocabulary: list[str] = tokens_df['token'].tolist()
-        input_embeddings = model.get_input_embeddings()
+        input_embeddings = self.model.get_input_embeddings()
         codebook_tensor = input_embeddings(self.token_id).detach() # no grad
-
-        pca_dim = codebook_tensor.shape[-1]
-
         self.register_buffer('codebook_tensor_pca', codebook_tensor)
+        self.codebook_mapping = nn.Linear(codebook_tensor.shape[-1], codebook_dim)
 
-        # construct mapping if needed
-        self.codebook_mlp = nn.Linear(pca_dim, codebook_dim)
+        # TODO: use pca for dimensional reduction first
+        # from torch_pca import PCA
+
+        itm_dict = {'amazon': 'book', 'yelp': 'restaurant', 'steam': 'game'}
 
         # prompt
-        # prompt = "The user/item is described by the following words: "
-        # ids = tokenizer(prompt, return_tensors="pt")["input_ids"]
-        # prompt_embedding = model.get_input_embeddings()(ids)
-        # self.register_buffer('prompt_embedding', prompt_embedding)
-
         prompt_usr = "The user and his likes can be described as the following words:"
-        prompt_itm = "The restaurant attracts those who can be described as the following words:"
-        ids_usr = tokenizer(prompt_usr, return_tensors="pt")["input_ids"]
-        ids_itm = tokenizer(prompt_itm, return_tensors="pt")["input_ids"]
-        prompt_embedding_usr = model.get_input_embeddings()(ids_usr).detach()
-        prompt_embedding_itm = model.get_input_embeddings()(ids_itm).detach()
+        prompt_itm = f"The {itm_dict[dataset_name]} attracts those who can be described as the following words:"
+        ids_usr = self.tokenizer(prompt_usr, return_tensors="pt")["input_ids"]
+        ids_itm = self.tokenizer(prompt_itm, return_tensors="pt")["input_ids"]
+        prompt_embedding_usr = self.model.get_input_embeddings()(ids_usr).detach()
+        prompt_embedding_itm = self.model.get_input_embeddings()(ids_itm).detach()
         prompt_embedding = torch.cat([prompt_embedding_usr, prompt_embedding_itm, prompt_embedding_itm], dim=0)
-
-        ids_comma = tokenizer(",", return_tensors="pt")["input_ids"][:,1:]
-        prompt_comma = model.get_input_embeddings()(ids_comma).detach()
+        ids_comma = self.tokenizer(",", return_tensors="pt")["input_ids"][:,1:]
+        prompt_comma = self.model.get_input_embeddings()(ids_comma).detach()
 
         self.register_buffer('prompt_embedding', prompt_embedding)
         self.register_buffer('prompt_comma', prompt_comma)
@@ -79,43 +66,39 @@ class CodeBook(nn.Module):
         coca_df = coca_df.iloc[:voc_word_num] # only keep the first word_num words
         return coca_df['word'].tolist()
     
-    def _profile_vocabulary(self, path = "./data/yelp"):
-        usrprf_path = os.path.join(path, 'usr_prf.pkl')
-        itmprf_path = os.path.join(path, 'itm_prf.pkl')
+    def _profile_vocabulary(self):
+        usrprf_path = f"./data/{self.dataset_name}/usr_prf.pkl"
+        itmprf_path = f"./data/{self.dataset_name}/itm_prf.pkl"
         with open(usrprf_path, 'rb') as f:
             usrprf = pickle.load(f)
             usrprf = [v['profile'] for v in usrprf.values()]
-            
         with open(itmprf_path, 'rb') as f:
             itmprf = pickle.load(f)
             itmprf = [v['profile'] for v in itmprf.values()]
-
         prfs = usrprf + itmprf
         prfs = "\n".join(prfs)
-
         prfs = prfs.lower()
-
         prfs_split = re.split(r'[^a-zA-Z]+', prfs)
         word_freq = Counter(prfs_split)
         common_words = [word for word, freq in word_freq.items() if freq > 100]
         return common_words
 
     
-    def _get_vocabulary(self, tokenizer):
-        vocal_dict = tokenizer.get_vocab()
+    def filter_and_get_vocabulary(self):
+        vocal_dict = self.tokenizer.get_vocab()
         tokens = vocal_dict.keys()
         tokens_list = list(tokens)
 
         tokens_df = pd.DataFrame()
         tokens_df['token'] = tokens_list
         # the id of token
-        tokens_df['token_id'] = tokens_df['token'].apply(tokenizer.convert_tokens_to_ids)
+        tokens_df['token_id'] = tokens_df['token'].apply(self.tokenizer.convert_tokens_to_ids)
         # remove the non-suffix token
         tokens_df = tokens_df[tokens_df['token'].apply(lambda x: x[0] == '▁')]
         # to string
-        tokens_df['token'] = tokens_df['token'].apply(lambda x: tokenizer.convert_tokens_to_string([x]))
+        tokens_df['token'] = tokens_df['token'].apply(lambda x: self.tokenizer.convert_tokens_to_string([x]))
         # keep the English words
-        tokens_df = tokens_df[tokens_df['token'].apply(is_english_word)]
+        tokens_df = tokens_df[tokens_df['token'].apply(lambda x: bool(re.fullmatch(r"[a-zA-Z]+", x)))]
         # remove the words with capital letters
         tokens_df = tokens_df[~tokens_df['token'].str.contains('[A-Z]')]
         # load the vocabulary of COCA60000
@@ -131,14 +114,14 @@ class CodeBook(nn.Module):
         return tokens_df
     
     def reverse_codebook_mapping(self, x):
-        reverse_weight = torch.pinverse(self.codebook_mlp.weight.detach()).t()
-        x = x - self.codebook_mlp.bias.detach()
+        reverse_weight = torch.pinverse(self.codebook_mapping.weight.detach()).t()
+        x = x - self.codebook_mapping.bias.detach()
         x = torch.matmul(x, reverse_weight)
         return x
     
     def forward(self, z_e):
-        if hasattr(self, 'codebook_mlp'):
-            mapped_codebook = self.codebook_mlp(self.codebook_tensor_pca)
+        if hasattr(self, 'codebook_mapping'):
+            mapped_codebook = self.codebook_mapping(self.codebook_tensor_pca)
         else:
             mapped_codebook = self.codebook_tensor_pca
 
@@ -176,8 +159,8 @@ class CodeBook(nn.Module):
         return [self.vocabulary[idx] for idx in codebook_tensor_indices]
     
     def forward_explain(self, z_e):
-        if hasattr(self, 'codebook_mlp'):
-            mapped_codebook = self.codebook_mlp(self.codebook_tensor_pca)
+        if hasattr(self, 'codebook_mapping'):
+            mapped_codebook = self.codebook_mapping(self.codebook_tensor_pca)
         else:
             mapped_codebook = self.codebook_tensor_pca
 
@@ -245,8 +228,8 @@ class LinearLayer(nn.Module):
         return x
     
 
-class VQRE(nn.Module):
-    def __init__(self, input_dim, word_num, word_dim):
+class VQRAF(nn.Module):
+    def __init__(self, input_dim, word_num, word_dim, dataset_name):
         super().__init__()
         self.input_dim = input_dim
         self.word_num = word_num
@@ -258,7 +241,7 @@ class VQRE(nn.Module):
         self.transformer_layer = TransformerEncoderLayer(d_model=self.word_dim, nhead=nhead, batch_first=True)
         self.transformer_encoder = TransformerEncoder(self.transformer_layer, num_layers=num_layers)
         self.transformer_decoder = TransformerEncoder(self.transformer_layer, num_layers=num_layers)
-        self.codebook = CodeBook(codebook_dim=self.word_dim, word_num = self.word_num, pca_dim=-1)
+        self.quantizer = Quantizer(codebook_dim=self.word_dim, word_num = self.word_num, dataset_name=dataset_name)
 
     def forward(self, x):
         # Encoder
@@ -268,12 +251,12 @@ class VQRE(nn.Module):
         z_e = self.transformer_encoder(linear_out) # batch_size, word_num, word_dim
         # z_e = linear_out
 
-        collaborative_representations = self.codebook.get_collaborative_representations(z_e)
+        collaborative_representations = self.quantizer.get_collaborative_representations(z_e)
         
         # VQ
         z_e_reshape = z_e.reshape(-1, self.word_dim) # batch_size*word_num, word_dim
 
-        z_q_reshape, vq_loss = self.codebook(z_e_reshape) # do vq
+        z_q_reshape, vq_loss = self.quantizer(z_e_reshape) # do vq
 
         z_q = z_q_reshape.reshape(x.shape[0], self.word_num, self.word_dim) # batch_size, word_num, word_dim
 
@@ -286,26 +269,15 @@ class VQRE(nn.Module):
         recons_loss = F.mse_loss(decoded, x.detach())
         
         return decoded, vq_loss, recons_loss, collaborative_representations
-    
-    def forward_reconstruction(self, x):
-        linear_out = self.linear_encoder(x)
-        z_e = self.transformer_encoder(linear_out) # batch_size, word_num, word_dim
-        z_e_reshape = z_e.reshape(-1, self.word_dim) # batch_size*word_num, word_dim
-        z_q_reshape, vq_loss = self.codebook(z_e_reshape) # do vq
-        z_q = z_q_reshape.reshape(x.shape[0], self.word_num, self.word_dim) # batch_size, word_num, word_dim
-        trans_decoder_out = self.transformer_decoder(z_q) # batch_size, word_num, word_dim
-        decoded = self.linear_encoder.reverse(trans_decoder_out)
-        return decoded
-    
-
+        
     def forward_explain(self, x):
         linear_out = self.linear_encoder(x)
         z_e = self.transformer_encoder(linear_out) # batch_size, word_num, word_dim
 
-        collaborative_representations = self.codebook.get_collaborative_representations(z_e)
+        collaborative_representations = self.quantizer.get_collaborative_representations(z_e)
 
         z_e_reshape = z_e.reshape(-1, self.word_dim) # batch_size*word_num, word_dim
-        z_q_reshape, explain_words = self.codebook.forward_explain(z_e_reshape) # get the words
+        z_q_reshape, explain_words = self.quantizer.forward_explain(z_e_reshape) # get the words
         explain_words = [explain_words[i:i + self.word_num] for i in range(0, len(explain_words), self.word_num)]
         explain_words = [" ".join(words) for words in explain_words]
 

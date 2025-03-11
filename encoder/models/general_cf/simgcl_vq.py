@@ -54,7 +54,7 @@ class SimGCL_vq(LightGCN_vq):
 
         # do vq
         entity_embeds = t.cat([anc_embeds3, pos_embeds3, neg_embeds3], dim=0)
-        entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.vqre(entity_embeds)
+        entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.vqraf(entity_embeds)
 
         # get the semantic representations
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, batch_data)
@@ -63,11 +63,10 @@ class SimGCL_vq(LightGCN_vq):
         bpr_loss = cal_bpr_loss(anc_embeds3, pos_embeds3, neg_embeds3) / anc_embeds3.shape[0]
         cl_loss = cal_infonce_loss(anc_embeds1, anc_embeds2, user_embeds2, self.temperature) + cal_infonce_loss(pos_embeds1, pos_embeds2, item_embeds2, self.temperature)
         cl_loss /= anc_embeds1.shape[0]
-        reg_loss = reg_params(self)
-        kd_loss = cal_align_loss(colla_repre, semantic_repre) 
+        align_loss = cal_align_loss(colla_repre, semantic_repre) 
 
-        loss = bpr_loss + self.reg_weight * reg_loss + self.cl_weight * cl_loss + self.vq_weight * vq_loss + self.recons_weight * recons_loss + self.kd_weight * kd_loss
-        losses = {'bpr_loss': bpr_loss, 'reg_loss': reg_loss, 'cl_loss': cl_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss, 'kd_loss': kd_loss}
+        loss = bpr_loss + self.cl_weight * cl_loss + self.vq_weight * vq_loss + self.recons_weight * recons_loss + self.align_weight * align_loss
+        losses = {'bpr_loss': bpr_loss, 'cl_loss': cl_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss, 'align_loss': align_loss}
         return loss, losses
 
     def full_predict(self, batch_data):
@@ -80,18 +79,3 @@ class SimGCL_vq(LightGCN_vq):
         full_preds = self._mask_predict(full_preds, train_mask)
         return full_preds
     
-    def full_predict_2(self, batch_data):
-        user_embeds, item_embeds = self.forward(self.adj, False)
-        self.is_training = False
-        pck_users, train_mask = batch_data
-        pck_users = pck_users.long()
-        pck_user_embeds = user_embeds[pck_users]
-
-        entity_embeds = t.cat([pck_user_embeds, item_embeds], dim=0)
-        entity_embeds_vq = self.vqre.forward_reconstruction(entity_embeds)
-        pck_user_embeds_vq, item_embeds_vq = t.split(entity_embeds_vq,[pck_user_embeds.shape[0], item_embeds.shape[0]])
-        full_preds = pck_user_embeds_vq @ item_embeds_vq.T
-        
-        # full_preds = pck_user_embeds @ item_embeds.T
-        full_preds = self._mask_predict(full_preds, train_mask)
-        return full_preds
