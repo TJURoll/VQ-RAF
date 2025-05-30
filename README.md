@@ -1,8 +1,8 @@
-# VQ-RAF
+# FACE
 
 ## 1. Special Files
 
-`encoder/models/general_cf/` all models, including base models (end without vq) and VQ-RAF enhanced models (end with vq)
+`encoder/models/general_cf/` all models, including base models (end without vq) and FACE enhanced models (end with vq)
 
 `encoder/vqraf.py` the implementation of "Vector-quantized Disentangled Representation Mapping"
 
@@ -31,7 +31,7 @@ pip install -r requirements.txt
 
 ### 2.4. Pretrain the Base Model
 
-Let's start with the example LightGCN and LightGCN+VQ-RAF on Amazon dataset.
+Let's start with the example LightGCN and LightGCN+FACE on Amazon dataset.
 
 ```
 python encoder/train_encoder.py --model lightgcn --dataset amazon
