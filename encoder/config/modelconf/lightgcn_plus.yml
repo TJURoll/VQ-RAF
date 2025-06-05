@@ -5,12 +5,12 @@ optimizer:
 
 train:
   epoch: 3000
-  batch_size: 256
+  batch_size: 128
   save_model: true
   loss: pairwise
   test_step: 3
   reproducible: true
-  seed: 256
+  seed: 2024
   patience: 5
 
 test:

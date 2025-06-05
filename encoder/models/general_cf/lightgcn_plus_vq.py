@@ -1,5 +1,5 @@
 import pickle
-from vqraf import VQRAF
+from face import FACE
 import torch as t
 from torch import nn
 from torch.nn import functional as F
@@ -32,7 +32,7 @@ class LightGCN_plus_vq(BaseModel):
 
         # semantic-embeddings
         self.usrprf_embeds = t.tensor(configs['usrprf_embeds']).float().cuda()
-        self.itmprf_embeds = t.tensor(configs['itmprf_embeds']).float().cuda()
+        self.itmprf_embeds = t.tensor(configs['usrprf_embeds']).float().cuda()
         self.mlp = nn.Sequential(
             nn.Linear(self.usrprf_embeds.shape[1], (self.usrprf_embeds.shape[1] + self.embedding_size) // 2),
             nn.LeakyReLU(),
@@ -47,14 +47,19 @@ class LightGCN_plus_vq(BaseModel):
         self.vq_weight = self.hyper_config['vq_weight']
         self.recons_weight = self.hyper_config['recons_weight']
         self.align_weight = self.hyper_config['align_weight']
-        self.vqraf = VQRAF(input_dim=self.embedding_size, word_num=self.word_num, word_dim = self.word_dim)
+        self.face = FACE(input_dim=self.embedding_size, word_num=self.word_num, word_dim = self.word_dim, dataset_name = configs['data']['name'], llm_name=configs['llm'])
 
         if "load_model" in configs['optimizer']:
             model_name = configs['optimizer']["load_model"]
             save_dir_path = './encoder/checkpoint/{}'.format(model_name)
             self._load_parameters('{}/{}-{}-{}.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed']))
             print("Successfully load model from {}".format('{}/{}-{}-{}.pth'.format(save_dir_path, configs['optimizer']["load_model"], configs['data']['name'], configs['train']['seed'])))
-
+        elif "load_all" in configs['optimizer']:
+            model_name = configs['optimizer']["load_all"]
+            save_dir_path = './encoder/checkpoint/{}'.format(model_name)
+            self.load_state_dict(t.load('{}/{}-{}-{}_all.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed'])))
+            print("Successfully load model from {}".format('{}/{}-{}-{}_all.pth'.format(save_dir_path, configs['optimizer']["load_all"], configs['data']['name'], configs['train']['seed'])))
+            
     def _init_weight(self):
         for m in self.mlp:
             if isinstance(m, nn.Linear):
@@ -106,17 +111,23 @@ class LightGCN_plus_vq(BaseModel):
 
         # do vq
         entity_embeds = t.cat([anc_embeds, pos_embeds, neg_embeds], dim=0)
-        entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.vqraf(entity_embeds)
+        if "load_model" in configs['optimizer']:
+            entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.face.forward_no_align(entity_embeds)
+        else:
+            entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.face(entity_embeds)
 
         # get the semantic representations
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, batch_data)
         semantic_repre = t.cat([ancprf_repre, posprf_repre, negprf_repre], dim=0)
+        if configs['optimizer']['use_recons']:
+            anc_embeds_vq, pos_embeds_vq, neg_embeds_vq = t.split(entity_embeds_vq, [anc_embeds.shape[0], pos_embeds.shape[0], neg_embeds.shape[0]], dim=0)
+            bpr_loss = cal_bpr_loss(anc_embeds_vq, pos_embeds_vq, neg_embeds_vq) / anc_embeds.shape[0]
+        else:
+            bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0] 
 
         usrprf_embeds = self.mlp(self.usrprf_embeds)
         itmprf_embeds = self.mlp(self.itmprf_embeds)
         ancprf_embeds, posprf_embeds, negprf_embeds = self._pick_embeds(usrprf_embeds, itmprf_embeds, batch_data)
-
-        bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0]
 
         kd_loss = cal_infonce_loss(anc_embeds, ancprf_embeds, usrprf_embeds, self.kd_temperature) + \
                   cal_infonce_loss(pos_embeds, posprf_embeds, posprf_embeds, self.kd_temperature) + \
@@ -128,11 +139,9 @@ class LightGCN_plus_vq(BaseModel):
         losses = {'bpr_loss': bpr_loss, 'kd_loss': kd_loss, 'align_loss': align_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss}
         return loss, losses
 
-    def get_explanation(self, batch_data):
+    def get_explanation(self, batch_data, indices = [0, 1, 4, 9, 16, 25, 36, 49], save = False):
         self.is_training = False
         user_embeds, item_embeds = self.forward(self.adj, self.keep_rate)
-
-        indices = [0, 1, 4, 9, 16, 25, 36, 49] # may be out of range
 
         selected_data = [entity_data[indices] for entity_data in batch_data]
 
@@ -141,27 +150,38 @@ class LightGCN_plus_vq(BaseModel):
         entity_embeds = t.cat([anc_embeds, pos_embeds, neg_embeds], dim=1)
         entity_embeds = entity_embeds.reshape(-1, self.embedding_size)
 
-        explain_words, colla_repre = self.vqraf.forward_explain(entity_embeds)
+        if "load_model" in configs['optimizer']:
+            explain_words, colla_repre, colla_repre_2 = self.face.forward_no_align_explain(entity_embeds)
+        else:
+            explain_words, colla_repre, colla_repre_2 = self.face.forward_explain(entity_embeds)
 
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, selected_data)
         semantic_repre = t.cat([ancprf_repre, posprf_repre, negprf_repre], dim=1)
         semantic_repre = semantic_repre.reshape(-1, self.usrprf_repre.shape[1])
 
-        sim_matrix = F.cosine_similarity(colla_repre.unsqueeze(1), semantic_repre.unsqueeze(0), dim=-1)
-        print("diag avg: ", t.diag(sim_matrix).mean().item())
-        print("non-diag avg: ", ((sim_matrix.sum() - t.diag(sim_matrix).sum()) / (sim_matrix.shape[0] * sim_matrix.shape[1] - sim_matrix.shape[0])).item())
 
-        explain_words = [explain_words[i:i+3] for i in range(0, len(explain_words), 3)]
-        anc_prfs, pos_prfs, neg_prfs = self._pick_prfs(configs['usrprf'], configs['itmprf'], selected_data)
-        entity_prfs = list(zip(anc_prfs, pos_prfs, neg_prfs))
-        for i in range(len(indices)):
-            print("① USER: ", entity_prfs[i][0])
-            print(explain_words[i][0], sim_matrix[i*3][i*3].item(), "\n")
-            print("② POS: ", entity_prfs[i][1])
-            print(explain_words[i][1], sim_matrix[i*3+1][i*3+1].item(), "\n")
-            print("③ NEG: ", entity_prfs[i][2])
-            print(explain_words[i][2], sim_matrix[i*3+2][i*3+2].item(), "\n")
+        if colla_repre is not None:
+            sim_matrix = t.matmul(colla_repre, semantic_repre.T)
+            sim_matrix_2 = t.matmul(colla_repre_2, semantic_repre.T)
+            print("sim_matrix", sim_matrix[:10, :10])
+            print("diag avg: ", t.diag(sim_matrix).mean().item())
+            print("non-diag avg: ", ((sim_matrix.sum() - t.diag(sim_matrix).sum()) / (sim_matrix.shape[0] * sim_matrix.shape[1] - sim_matrix.shape[0])).item())
 
+            print("sim_matrix_2", sim_matrix_2[:10, :10])
+            print("diag avg: ", t.diag(sim_matrix_2).mean().item())
+            print("non-diag avg: ", ((sim_matrix_2.sum() - t.diag(sim_matrix_2).sum()) / (sim_matrix_2.shape[0] * sim_matrix_2.shape[1] - sim_matrix_2.shape[0])).item())
+        
+
+            explain_words = [explain_words[i:i+3] for i in range(0, len(explain_words), 3)]
+            anc_prfs, pos_prfs, neg_prfs = self._pick_prfs(configs['usrprf'], configs['itmprf'], selected_data)
+            entity_prfs = list(zip(anc_prfs, pos_prfs, neg_prfs))
+            for i in range(len(indices)):
+                print("- USER: ", entity_prfs[i][0])
+                print(explain_words[i][0], sim_matrix[i*3][i*3].item(), sim_matrix_2[i*3][i*3].item())
+                print("- POS: ", entity_prfs[i][1])
+                print(explain_words[i][1], sim_matrix[i*3+1][i*3+1].item(), sim_matrix_2[i*3+1][i*3+1].item())
+                print("- NEG: ", entity_prfs[i][2])
+                print(explain_words[i][2], sim_matrix[i*3+2][i*3+2].item(), sim_matrix_2[i*3+2][i*3+2].item())
 
     def full_predict(self, batch_data):
         user_embeds, item_embeds = self.forward(self.adj, 1.0)
@@ -169,8 +189,26 @@ class LightGCN_plus_vq(BaseModel):
         pck_users, train_mask = batch_data
         pck_users = pck_users.long()
         pck_user_embeds = user_embeds[pck_users]
-        
-        full_preds = pck_user_embeds @ item_embeds.T
+        if configs['optimizer']['use_recons']:
+            entity_embeds = t.cat([pck_user_embeds, item_embeds], dim=0)
+            entity_embeds_vq, _, _, _ = self.face.forward_no_align(entity_embeds)
+            pck_user_embeds_vq, item_embeds_vq = t.split(entity_embeds_vq, [pck_user_embeds.shape[0], item_embeds.shape[0]], dim=0)
+            full_preds = pck_user_embeds_vq @ item_embeds_vq.T
+        else:
+            full_preds = pck_user_embeds @ item_embeds.T
+        full_preds = self._mask_predict(full_preds, train_mask)
+        return full_preds
+    
+    def full_predict_2(self, batch_data):
+        user_embeds, item_embeds = self.forward(self.adj, 1.0)
+        self.is_training = False
+        pck_users, train_mask = batch_data
+        pck_users = pck_users.long()
+        pck_user_embeds = user_embeds[pck_users]
+        entity_embeds = t.cat([pck_user_embeds, item_embeds], dim=0)
+        entity_embeds_vq, _, _, _ = self.face.forward_no_align(entity_embeds)
+        pck_user_embeds_vq, item_embeds_vq = t.split(entity_embeds_vq, [pck_user_embeds.shape[0], item_embeds.shape[0]], dim=0)
+        full_preds = pck_user_embeds_vq @ item_embeds_vq.T
         full_preds = self._mask_predict(full_preds, train_mask)
         return full_preds
     

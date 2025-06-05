@@ -5,10 +5,12 @@ from trainer.logger import Logger
 from data_utils.build_data_handler import build_data_handler
 from trainer.build_trainer import build_trainer
 import wandb
+import torch
 
 if __name__ == '__main__':
 
-    wandb.init(project = f"VQRAF_{configs['data']['name']}", config = configs, name = configs['model']['name'])
+    wandb.init(project = f"Final Amazon", config = {**configs['optimizer'], **configs['train'], **configs['test'], **configs['data'], **configs['model']}
+               , name = configs['remark'])
     # First Step: Create data_handler
     init_seed()
     data_handler = build_data_handler()

@@ -38,8 +38,8 @@ class Trainer(object):
             if "mode" in optim_config and optim_config['mode'] == "finetune":
                 self.optimizer = optim.Adam(# model.parameters(), lr=optim_config['lr'], weight_decay=optim_config['weight_decay'])
                 [
-                    {"params": model.vqraf.parameters(), "lr": optim_config['lr']},
-                    {"params": list(set(model.parameters()) - set(model.vqraf.parameters())),
+                    {"params": model.face.parameters(), "lr": optim_config['lr']},
+                    {"params": list(set(model.parameters()) - set(model.face.parameters())),
                      "lr": optim_config['lr'] / 10, "weight_decay": 2 * model.hyper_config['reg_weight']},
                 ])
             else:
@@ -76,14 +76,14 @@ class Trainer(object):
                 else:
                     loss_log_dict[loss_name] += _loss_val
 
-            # if i == 0 and configs['model']['name'][-2:] == 'vq':
-            #     model.eval()
-            #     print("\033[43mStart to explain\033[0m")
-            #     with torch.no_grad():
-            #         model.get_explanation(batch_data)
-            #     model.train()
-            #     print("\033[43mFinish explaining\033[0m")
-            #     print()
+            if i == 0 and configs['model']['name'][-2:] == 'vq':
+                model.eval()
+                print("\033[43mStart to explain\033[0m")
+                with torch.no_grad():
+                    model.get_explanation(batch_data)
+                model.train()
+                print("\033[43mFinish explaining\033[0m")
+                print()
 
         wandb.log({f'Epoch/{key}': value for key, value in loss_log_dict.items()})
 
@@ -95,8 +95,6 @@ class Trainer(object):
         self.create_optimizer(model)
         train_config = configs['train']
         for epoch_idx in range(train_config['epoch']):
-            # train
-            self.train_epoch(model, epoch_idx)
             # evaluate
             if epoch_idx % train_config['test_step'] == 0:
                 eval_result = self.evaluate(model)
@@ -112,6 +110,8 @@ class Trainer(object):
                 # early stop
                 if now_patience == configs['train']['patience']:
                     break
+            # train
+            self.train_epoch(model, epoch_idx)
 
         # evaluation again
         model = build_model(self.data_handler).to(configs['device'])
@@ -131,6 +131,10 @@ class Trainer(object):
         model.eval()
         eval_result = self.metric.eval(model, self.data_handler.valid_dataloader)
         self.logger.log_eval(eval_result, configs['test']['k'], data_type='Valid')
+
+        if configs['model']['name'][-2:] == 'vq':
+            eval_result_2 = self.metric.eval_2(model, self.data_handler.valid_dataloader)
+            self.logger.log_eval(eval_result_2, configs['test']['k'], data_type='None')
         return eval_result
 
 
@@ -138,6 +142,10 @@ class Trainer(object):
         model.eval()
         eval_result = self.metric.eval(model, self.data_handler.test_dataloader)
         self.logger.log_eval(eval_result, configs['test']['k'], data_type='Valid')
+
+        if configs['model']['name'][-2:] == 'vq':
+            eval_result_2 = self.metric.eval_2(model, self.data_handler.test_dataloader)
+            self.logger.log_eval(eval_result_2, configs['test']['k'], data_type='None')
         return eval_result
     
     def save_model(self, model):
@@ -147,74 +155,19 @@ class Trainer(object):
             save_dir_path = './encoder/checkpoint/{}'.format(model_name)
             if not os.path.exists(save_dir_path):
                 os.makedirs(save_dir_path)
-            torch.save(model_state_dict, '{}/{}-{}-{}.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed']))
-            print("Save model parameters to {}".format('{}/{}-{}-{}.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed'])))
 
-    def load_model(self, model):
-        if 'pretrain_path' in configs['train']:
-            pretrain_path = configs['train']['pretrain_path']
+            if "load_model" in configs['optimizer']:
+                torch.save(model_state_dict, '{}/{}-{}-{}_all.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed']))
+                print("Save model parameters to {}".format('{}/{}-{}-{}_all.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed'])))
+            elif "load_all" in configs['optimizer']:
+                torch.save(model_state_dict, '{}/{}-{}-{}_final.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed']))
+                print("Save model parameters to {}".format('{}/{}-{}-{}_final.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed'])))
+            else:
+                torch.save(model_state_dict, '{}/{}-{}-{}.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed']))
+                print("Save model parameters to {}".format('{}/{}-{}-{}.pth'.format(save_dir_path, model_name, configs['data']['name'], configs['train']['seed'])))
+
+    def load_model(self, model, pretrain_path):
             model.load_state_dict(torch.load(pretrain_path))
             print(
                 "Load model parameters from {}".format(pretrain_path))
             
-    # def explain(self, model):
-    #     model.eval()
-    #     train_dataloader = self.data_handler.train_dataloader
-    #     train_dataloader.dataset.sample_negs()
-
-    #     eval_result = self.evaluate(model)
-    #     self.logger.log_eval(eval_result, configs['test']['k'], data_type='Validation')
-
-    #     for _, tem in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-    #         batch_data = list(map(lambda x: x.long().to(configs['device']), tem))
-    #         model.get_explanation(batch_data)
-
-
-class AutoCFTrainer(Trainer):
-    def __init__(self, data_handler, logger):
-        super(AutoCFTrainer, self).__init__(data_handler, logger)
-        self.fix_steps = configs['model']['fix_steps']
-
-    def train_epoch(self, model, epoch_idx):
-        # prepare training data
-        train_dataloader = self.data_handler.train_dataloader
-        train_dataloader.dataset.sample_negs()
-
-        # for recording loss
-        loss_log_dict = {}
-        ep_loss = 0
-        steps = len(train_dataloader.dataset) // configs['train']['batch_size']
-        # start this epoch
-        model.train()
-        for i, tem in tqdm(enumerate(train_dataloader), desc='Training Recommender', total=len(train_dataloader)):
-            self.optimizer.zero_grad()
-            batch_data = list(map(lambda x: x.long().to(configs['device']), tem))
-
-            if i % self.fix_steps == 0:
-                sampScores, seeds = model.sample_subgraphs()
-                encoderAdj, decoderAdj = model.mask_subgraphs(seeds)
-
-            loss, loss_dict = model.cal_loss(batch_data, encoderAdj, decoderAdj)
-
-            if i % self.fix_steps == 0:
-                localGlobalLoss = -sampScores.mean()
-                loss += localGlobalLoss
-                loss_dict['infomax_loss'] = localGlobalLoss
-
-            ep_loss += loss.item()
-            loss.backward()
-            self.optimizer.step()
-
-            # record loss
-            for loss_name in loss_dict:
-                _loss_val = float(loss_dict[loss_name]) / len(train_dataloader)
-                if loss_name not in loss_log_dict:
-                    loss_log_dict[loss_name] = _loss_val
-                else:
-                    loss_log_dict[loss_name] += _loss_val
-
-        # writer.add_scalar('Loss/train', ep_loss / steps, epoch_idx)
-        wandb.log({f'Epoch/{key}': value for key, value in loss_log_dict.items()})
-
-
-

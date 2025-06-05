@@ -10,7 +10,7 @@ train:
   loss: pairwise
   test_step: 3
   reproducible: true
-  seed: 2024
+  seed: 256
   patience: 5
 
 test:
@@ -22,25 +22,18 @@ data:
   type: general_cf
   name: amazon
 
-
 model:
-  name: lightgcn
-  # general parameters here
-  keep_rate: 0.8
+  name: gmf
   embedding_size: 256
 
   # dataset-specific parameters here
-  layer_num: 3
   reg_weight: 1.0e-6
   # for amazon
   amazon:
-    layer_num: 3
     reg_weight: 1.0e-6
   # for yelp
   yelp:
-    layer_num: 3
     reg_weight: 1.0e-6
   # for steam
   steam:
-    layer_num: 2
     reg_weight: 1.0e-6

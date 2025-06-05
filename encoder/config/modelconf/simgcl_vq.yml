@@ -3,6 +3,8 @@ optimizer:
   lr: 1.0e-3
   weight_decay: 0
   load_model: simgcl
+  load_all: simgcl_vq
+  use_recons: false
   mode: finetune
 
 train:
@@ -13,7 +15,7 @@ train:
   test_step: 1
   reproducible: true
   seed: 256
-  patience: 5
+  patience: 10
 
 test:
   metrics: [recall, ndcg]
@@ -34,7 +36,7 @@ model:
   cl_weight: 1.0e-1
   temperature: 0.2
   eps: 0.9
-  word_num: 8
+  word_num: 16
   word_dim: 256
   vq_weight: 1.0
   recons_weight: 1.0
@@ -46,7 +48,7 @@ model:
     cl_weight: 1.0e-1
     temperature: 0.2
     eps: 0.9
-    word_num: 8
+    word_num: 16
     word_dim: 256
     vq_weight: 1.0
     recons_weight: 1.0
@@ -58,7 +60,7 @@ model:
     cl_weight: 1.0e-1
     temperature: 0.2
     eps: 0.9
-    word_num: 8
+    word_num: 16
     word_dim: 256
     vq_weight: 1.0
     recons_weight: 1.0
@@ -70,7 +72,7 @@ model:
     cl_weight: 1.0e-1
     temperature: 0.5
     eps: 0.2
-    word_num: 8
+    word_num: 16
     word_dim: 256
     vq_weight: 1.0
     recons_weight: 1.0

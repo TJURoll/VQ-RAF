@@ -1,34 +1,28 @@
-import pickle
-from face import FACE
 import torch as t
-import pandas as pd
-from torch import nn
-from torch.nn import functional as F
+from face import FACE
+import numpy as np
+import torch_sparse
+import torch.nn as nn
+import scipy.sparse as sp
+import torch.nn.functional as F
+
 from config.configurator import configs
-from models.loss_utils import cal_bpr_loss, reg_params, cal_align_loss
-from models.base_model import BaseModel
-from models.model_utils import SpAdjEdgeDrop
+from models.general_cf.lightgcn import BaseModel
+from models.loss_utils import cal_bpr_loss, reg_params, cal_infonce_loss, cal_align_loss
 
 init = nn.init.xavier_uniform_
 uniformInit = nn.init.uniform
 
-class LightGCN_vq(BaseModel):
+class GMF_vq(BaseModel):
     def __init__(self, data_handler):
-        super(LightGCN_vq, self).__init__(data_handler)
-        self.adj = data_handler.torch_adj
-        self.keep_rate = configs['model']['keep_rate']
+        super(GMF_vq, self).__init__(data_handler)
+        # model parameters
         self.user_embeds = nn.Parameter(init(t.empty(self.user_num, self.embedding_size)))
         self.item_embeds = nn.Parameter(init(t.empty(self.item_num, self.embedding_size)))
 
-        self.edge_dropper = SpAdjEdgeDrop()
-        self.final_embeds = None
-        self.is_training = False
 
         self.usrprf_repre = t.tensor(configs['usrprf_repre']).float().cuda()
         self.itmprf_repre = t.tensor(configs['itmprf_repre']).float().cuda()
-
-        self.layer_num = self.hyper_config['layer_num']
-
         # vq
         self.word_num = self.hyper_config['word_num']
         self.word_dim = self.hyper_config['word_dim']
@@ -52,25 +46,9 @@ class LightGCN_vq(BaseModel):
         params = t.load(path)
         self.user_embeds = nn.Parameter(params['user_embeds'])
         self.item_embeds = nn.Parameter(params['item_embeds'])
-    
-    def _propagate(self, adj, embeds):
-        return t.spmm(adj, embeds)
-    
-    def forward(self, adj=None, keep_rate=1.0):
-        if adj is None:
-            adj = self.adj
-        if not self.is_training and self.final_embeds is not None:
-            return self.final_embeds[:self.user_num], self.final_embeds[self.user_num:]
-        embeds = t.concat([self.user_embeds, self.item_embeds], axis=0)
-        embeds_list = [embeds]
-        if self.is_training:
-            adj = self.edge_dropper(adj, keep_rate)
-        for i in range(self.layer_num):
-            embeds = self._propagate(adj, embeds_list[-1])
-            embeds_list.append(embeds)
-        embeds = sum(embeds_list)
-        self.final_embeds = embeds
-        return embeds[:self.user_num], embeds[self.user_num:]
+
+    def forward(self):
+        return self.user_embeds, self.item_embeds
 
     def _pick_embeds(self, user_embeds, item_embeds, batch_data):
         ancs, poss, negs = batch_data
@@ -85,16 +63,13 @@ class LightGCN_vq(BaseModel):
         pos_prfs = [item_prfs[pos.item()] for pos in poss]
         neg_prfs = [item_prfs[neg.item()] for neg in negs]
         return anc_prfs, pos_prfs, neg_prfs
-
-
-
+    
     def cal_loss(self, batch_data):
-        self.is_training = True
-        user_embeds, item_embeds = self.forward(self.adj, self.keep_rate)
-
-        anc_embeds, pos_embeds, neg_embeds = self._pick_embeds(user_embeds, item_embeds, batch_data)
-
-        # do vq
+        user_embeds, item_embeds = self.forward()
+        ancs, poss, negs = batch_data
+        anc_embeds = user_embeds[ancs]
+        pos_embeds = item_embeds[poss]
+        neg_embeds = item_embeds[negs]
         entity_embeds = t.cat([anc_embeds, pos_embeds, neg_embeds], dim=0)
         if "load_model" in configs['optimizer']:
             entity_embeds_vq, vq_loss, recons_loss, colla_repre = self.face.forward_no_align(entity_embeds)
@@ -106,6 +81,7 @@ class LightGCN_vq(BaseModel):
             bpr_loss = cal_bpr_loss(anc_embeds_vq, pos_embeds_vq, neg_embeds_vq) / anc_embeds.shape[0]
         else:
             bpr_loss = cal_bpr_loss(anc_embeds, pos_embeds, neg_embeds) / anc_embeds.shape[0] 
+
         # get the semantic representations
         ancprf_repre, posprf_repre, negprf_repre = self._pick_embeds(self.usrprf_repre, self.itmprf_repre, batch_data)
         semantic_repre = t.cat([ancprf_repre, posprf_repre, negprf_repre], dim=0)
@@ -115,10 +91,9 @@ class LightGCN_vq(BaseModel):
         losses = {'bpr_loss': bpr_loss, 'vq_loss': vq_loss, 'recons_loss': recons_loss, 'align_loss': align_loss}
         return loss, losses
     
-
     def get_explanation(self, batch_data, indices = [0, 1, 4, 9, 16, 25, 36, 49], save = False):
         self.is_training = False
-        user_embeds, item_embeds = self.forward(self.adj, self.keep_rate)
+        user_embeds, item_embeds = self.forward()
 
         selected_data = [entity_data[indices] for entity_data in batch_data]
 
@@ -160,25 +135,9 @@ class LightGCN_vq(BaseModel):
                 print("- NEG: ", entity_prfs[i][2])
                 print(explain_words[i][2], sim_matrix[i*3+2][i*3+2].item(), sim_matrix_2[i*3+2][i*3+2].item())
 
-        # if save:
-        #     df_1 = pd.DataFrame(columns=['user_id', 'descriptors', 'profile'])
-        #     for i in range(0, len(indices), 3):
-        #         rows = [
-        #             {'user_id': selected_data[0][i].item(), 'descriptors': explain_words[i][0], 'profile': entity_prfs[i][0]}, # user
-        #             {'user_id': selected_data[0][i].item(), 'descriptors': explain_words[i][1], 'profile': entity_prfs[i][1]}, # pos
-        #             {'user_id': selected_data[0][i].item(), 'descriptors': explain_words[i][2], 'profile': entity_prfs[i][2]}, # neg1
-        #             {'user_id': selected_data[0][i].item(), 'descriptors': explain_words[i+1][2], 'profile': entity_prfs[i+1][2]}, # neg2
-        #             {'user_id': selected_data[0][i].item(), 'descriptors': explain_words[i+2][2], 'profile': entity_prfs[i+2][2]}  # neg3
-        #         ]
-        #         df_1 = pd.concat([df_1, pd.DataFrame(rows)])
-        #     # df_1 = df_1.groupby('user_id')
-        #     # df_1 = pd.DataFrame(df_1)
-        #     df_1.to_csv(f"./data/vocabulary/explanation_{configs['data']['name']}.csv", index=False)
-            
 
     def full_predict(self, batch_data):
-        user_embeds, item_embeds = self.forward(self.adj, 1.0)
-        self.is_training = False
+        user_embeds, item_embeds = self.forward()
         pck_users, train_mask = batch_data
         pck_users = pck_users.long()
         pck_user_embeds = user_embeds[pck_users]
@@ -193,8 +152,7 @@ class LightGCN_vq(BaseModel):
         return full_preds
     
     def full_predict_2(self, batch_data):
-        user_embeds, item_embeds = self.forward(self.adj, 1.0)
-        self.is_training = False
+        user_embeds, item_embeds = self.forward()
         pck_users, train_mask = batch_data
         pck_users = pck_users.long()
         pck_user_embeds = user_embeds[pck_users]

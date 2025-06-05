@@ -2,8 +2,8 @@ optimizer:
   name: adam
   lr: 1.0e-3
   weight_decay: 0
-  load_model: lightgcn_plus
-  load_all: lightgcn_plus_vq
+  load_model: gmf
+  load_all: gmf_vq
   use_recons: false
   mode: finetune
 
@@ -16,7 +16,7 @@ train:
   reproducible: true
   seed: 256
   patience: 10
-
+  
 test:
   metrics: [recall, ndcg]
   k: [5, 10, 20]
@@ -27,26 +27,18 @@ data:
   name: amazon
 
 model:
-  name: lightgcn_plus_vq
-  keep_rate: 0.8
+  name: gmf_vq
   embedding_size: 256
 
-  layer_num: 3
   reg_weight: 1.0e-6
-  kd_weight: 1.0e-2
-  kd_temperature: 0.2
   word_num: 16
   word_dim: 256
   vq_weight: 1.0
   recons_weight: 1.0
   align_weight: 1.0e-1
-
   # for amazon
   amazon:
-    layer_num: 3
     reg_weight: 1.0e-6
-    kd_weight: 1.0e-2
-    kd_temperature: 0.2
     word_num: 16
     word_dim: 256
     vq_weight: 1.0
@@ -54,10 +46,7 @@ model:
     align_weight: 1.0e-1
   # for yelp
   yelp:
-    layer_num: 3
     reg_weight: 1.0e-6
-    kd_weight: 1.0e-2
-    kd_temperature: 0.2
     word_num: 16
     word_dim: 256
     vq_weight: 1.0
@@ -65,12 +54,10 @@ model:
     align_weight: 1.0e-1
   # for steam
   steam:
-    layer_num: 2
     reg_weight: 1.0e-6
-    kd_weight: 1.0e-2
-    kd_temperature: 0.2
     word_num: 16
     word_dim: 256
     vq_weight: 1.0
     recons_weight: 1.0
     align_weight: 1.0e-1
+
